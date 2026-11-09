@@ -10,16 +10,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from . import llm, sessions
+from .prompts import SYSTEM_PROMPT
 
 app = FastAPI(title="情感陪护数字人 Agent", version="0.1.0")
-
-# 数字人角色设定（阶段 2 会继续打磨成正式的心理学人格）
-SYSTEM_PROMPT = (
-    "你叫「小暖」，是一位面向老年人的情感陪护数字人。"
-    "你的风格：温暖、耐心、有同理心，说话通俗、简短，像家人一样聊天。"
-    "你具备心理学常识，能识别对方焦虑、抑郁等情绪，但你不是医生，"
-    "遇到明显的自伤或危机信号时，要温和地建议对方联系家人、医生或求助热线。"
-)
 
 
 class ChatRequest(BaseModel):
@@ -45,6 +38,9 @@ def _build_messages(session_id: str, user_text: str) -> list[dict]:
 def health():
     return {"status": "ok"}
 
+@app.get("/ping")
+def ping():
+    return {"msg":"我写出来了"}
 
 @app.post("/chat")
 def chat(req: ChatRequest):
