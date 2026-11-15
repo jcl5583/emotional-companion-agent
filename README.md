@@ -7,7 +7,7 @@
 - ✅ **阶段 0**：FastAPI 服务骨架（`/health`、`/chat`、`/chat/stream`、`/clear`）
 - ✅ **阶段 1**：接 LLM（本地 Ollama 或 DeepSeek API，二选一）+ 多轮对话 + 流式输出
 - ✅ **阶段 2**：人格 Prompt 工程化（六模块 + few-shot + 危机干预流程 + 情绪标签）
-- ⬜ 阶段 3：RAG 心理学知识库
+- ✅ **阶段 3**：RAG 心理学知识库（切片 + 向量化 + Chroma 检索，检索结果注入对话）
 - ⬜ 阶段 4：Agent 化（工具调用 + 记忆）
 - ⬜ 阶段 5：语音 + 数字人前端
 - ⬜ 阶段 6：评测 + 部署 + 简历
@@ -24,7 +24,11 @@ emotional-companion-agent/
 │   ├── config.py        # 读取 .env 配置，切换 LLM provider
 │   ├── llm.py           # LLM 客户端封装（普通 / 流式）
 │   ├── prompts.py       # 数字人人格 Prompt（六模块）
+│   ├── rag.py           # 知识库：切片、向量化、检索（Chroma）
 │   └── sessions.py      # 多轮对话的会话管理（内存版）
+├── data/
+│   ├── knowledge/       # 心理学知识库（Markdown 文档，5 篇）
+│   └── chroma/          # 向量库（本地生成，不入库）
 ├── test_chat.py         # 自测脚本
 ├── requirements.txt     # 依赖
 ├── .env.example         # 配置模板（复制成 .env 使用）
@@ -56,18 +60,20 @@ pip install -r requirements.txt
 
 > 不想激活的话，后续命令可以用 `.venv\Scripts\python.exe -m uvicorn ...` 代替。
 
-### 第 2 步：选一个 LLM 提供方（二选一）
+### 第 2 步：配置 `.env`
 
-**方式 A：DeepSeek API（推荐，国内快，效果好）**
-
-1. 去 https://platform.deepseek.com 申请 API key
-2. 把 `.env.example` 复制成 `.env`：
+先把模板复制成 `.env`：
 
 ```bash
 cp .env.example .env
 ```
 
-3. 编辑 `.env`：
+**2.1 选一个 LLM 提供方（二选一）**
+
+**方式 A：DeepSeek API（推荐，国内快，效果好）**
+
+1. 去 https://platform.deepseek.com 申请 API key
+2. 编辑 `.env`：
 
 ```
 LLM_PROVIDER=deepseek
@@ -83,11 +89,34 @@ DEEPSEEK_API_KEY=sk-你的key
 ollama pull qwen2.5:3b
 ```
 
-3. 不建 `.env` 即可，默认就走 Ollama。
+3. `LLM_PROVIDER=ollama` 即可（默认值，不用改）。
 
 > 两种 provider 都提供 OpenAI 兼容接口，切换只改 `.env`，代码零改动。
 
-### 第 3 步：启动服务
+**2.2 配置 Embedding（RAG 必须，两套 key 不冲突）**
+
+RAG 要把知识文档转成向量才能检索，项目用硅基流动的 `BAAI/bge-m3`（免费额度足够）：
+
+1. 去 https://siliconflow.cn 注册并申请 API key
+2. `.env` 里填：
+
+```
+EMBEDDING_API_KEY=sk-你的key
+```
+
+> DeepSeek 不提供 embedding 接口，所以 LLM 和 embedding 需要两套 key。缺了 embedding key，建索引会报错。
+
+### 第 3 步：建知识库索引
+
+```bash
+python -m app.rag
+```
+
+会打印每篇文档切了多少块，最后一行"入库完成，共 N 块"。向量库落在 `data/chroma/`（本地生成，已加入 `.gitignore`，换机器重新跑一次即可）。
+
+> 修改 `data/knowledge/` 里的文档后，要重新跑这条命令，否则检索到的还是旧内容。
+
+### 第 4 步：启动服务
 
 ```bash
 uvicorn app.main:app --reload
@@ -97,7 +126,7 @@ uvicorn app.main:app --reload
 
 > 改 `.env` 后必须手动重启，`--reload` 只监听 `.py` 文件。
 
-### 第 4 步：跑自测脚本
+### 第 5 步：跑自测脚本
 
 另开一个终端（保持服务运行）：
 
@@ -157,6 +186,21 @@ curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "
 
 > ⚠️ 本项目是技术演示，不构成医疗建议，不能替代专业心理干预。
 
+## 核心机制三：RAG 知识库检索
+
+回答专业问题（抑郁症、睡眠、老年心理）时，不能只靠模型自己的参数记忆——它可能记错、也可能过时。RAG（检索增强生成）的做法是：
+
+> 先把知识库切片、向量化存好；回答前先"查"出最相关的几段，作为依据一起塞给模型。
+
+本项目的流程：
+
+1. `data/knowledge/*.md` 按约 500 字切块，块间重叠 80 字（防止句子被切断丢信息）
+2. 用硅基流动 `bge-m3` 把每块转成向量，存进 Chroma
+3. 对话时拿用户这句话去检索 top-3 最相关片段
+4. 拼进 system prompt 的"参考资料"段——要求模型**用自己话表达、不要照抄**
+
+当前是**朴素 RAG**：每一轮都检索，闲聊也会去查库。阶段 4 会升级成"由模型自主决定何时检索"的工具调用。
+
 ## 三种典型场景（实测）
 
 | 场景 | 输入 | 表现 |
@@ -169,7 +213,8 @@ curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "
 
 ## 路线图
 
-- **阶段 3**：RAG —— 心理学知识库切片、向量化、检索，回答有专业依据
-- **阶段 4**：Agent 化 —— Function Calling 工具（情绪评估 / 知识检索 / 危机干预）+ 长期记忆
+- **阶段 4**：Agent 化 —— Function Calling 工具（知识检索 / 情绪评估 / 危机干预）+ 长期记忆
 - **阶段 5**：语音与数字人 —— ASR + TTS + 2D 形象口型同步
 - **阶段 6**：评测（评测集、bad case 分析）+ Docker 部署
+
+> 已完成：阶段 3 RAG —— 5 篇心理学知识库、500/80 切片、`bge-m3` 向量化、Chroma 存储、top-3 检索注入对话。

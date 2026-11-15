@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import llm, sessions
+from . import llm, sessions, rag
 from .prompts import SYSTEM_PROMPT
 
 app = FastAPI(title="情感陪护数字人 Agent", version="0.1.0")
@@ -25,22 +25,26 @@ class ClearRequest(BaseModel):
 
 
 def _build_messages(session_id: str, user_text: str) -> list[dict]:
-    """拼出完整消息列表：system 开头 + 历史 + 本轮用户消息（不修改存储）。"""
+    """拼出消息列表：system（人格 + 参考资料） + 历史 + 本轮用户消息。"""
     history = sessions.get_history(session_id)
-    return (
-        [{"role": "system", "content": SYSTEM_PROMPT}]
-        + history
-        + [{"role": "user", "content": user_text}]
+
+    # 朴素 RAG：拿用户这句话去知识库查最相关的 3 段
+    docs = rag.retrieve(user_text, top_k=3)
+    reference = "\n\n".join(f"《{d['source']}》：{d['text']}" for d in docs)
+
+    system = (
+        SYSTEM_PROMPT
+        + "\n\n# 参考资料（用你自己的话表达，不要照抄）\n"
+        + reference
     )
+
+    return [{"role": "system", "content": system}] + history + [{"role": "user", "content": user_text}]
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-@app.get("/ping")
-def ping():
-    return {"msg":"我写出来了"}
 
 @app.post("/chat")
 def chat(req: ChatRequest):

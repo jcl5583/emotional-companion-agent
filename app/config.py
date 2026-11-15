@@ -23,6 +23,11 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 
+# 硅基流动 Embedding（OpenAI 兼容）
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+
 
 def resolve() -> tuple[str, str, str]:
     """返回 (base_url, api_key, model)。"""
