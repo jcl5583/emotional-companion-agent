@@ -3,6 +3,7 @@
 统一用 openai SDK，因为 DeepSeek 和 Ollama 都提供 OpenAI 兼容的接口，
 换模型只需改 .env，代码不用动。
 """
+import json
 from openai import OpenAI
 
 from . import config
@@ -32,6 +33,22 @@ def chat(messages: list[dict], temperature: float = 0.8) -> str:
     )
     return resp.choices[0].message.content or ""
 
+def chat_json(messages: list[dict], temperature: float = 0.0) -> dict:
+    """非流式 + 强制 JSON 输出，解析失败重试一次。"""
+    content = ""
+    for _ in range(2):
+        resp = _get_client().chat.completions.create(
+            model=_model(),
+            messages=messages,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+        )
+        content = resp.choices[0].message.content or ""
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            continue
+    raise ValueError(f"模型没有返回合法 JSON：{content[:200]}")
 
 def chat_stream(messages: list[dict], temperature: float = 0.8):
     """流式：逐段产出回复内容（generator）。

@@ -5,3 +5,4 @@ venv/
 .env
 data/chroma/
 .vscode/
+data/memory.db
