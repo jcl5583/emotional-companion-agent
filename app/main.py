@@ -5,17 +5,23 @@
 """
 import json
 import logging
+from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import llm, memory, sessions, tools
 from .prompts import MEMORY_EXTRACT_PROMPT, SYSTEM_PROMPT
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="情感陪护数字人 Agent", version="0.1.0")
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class ChatRequest(BaseModel):
@@ -77,6 +83,15 @@ def _update_memory(session_id: str, user_text: str, reply: str) -> None:
 MAX_TOOL_STEPS = 3
 MAX_TOOL_ROUNDS_STREAM = 2
 
+CRISIS_HOTLINE_LINE = "\n\n您不是一个人，全国心理援助热线 12356，随时可以打过去找人说话。"
+
+
+def _apply_safety_net(reply: str) -> str:
+    """模型漏掉危机热线时，用代码补上——prompt 是软约束，安全必须有硬保证。"""
+    if "<emotion>危机</emotion>" in reply and "12356" not in reply:
+        return reply + CRISIS_HOTLINE_LINE
+    return reply
+
 
 def _tool_call_message(msg) -> dict:
     """把模型返回的 tool_calls 原样转成可回填的 assistant 消息。"""
@@ -114,7 +129,7 @@ def _run_agent(session_id: str, user_text: str) -> str:
     for _ in range(MAX_TOOL_STEPS):
         msg = llm.chat_with_tools(messages, tools.TOOL_SPECS)
         if not msg.tool_calls:
-            return msg.content or ""
+            return _apply_safety_net(msg.content or "")
         messages.append(_tool_call_message(msg))
         messages.extend(_execute_tool_calls(msg))
 
@@ -128,12 +143,25 @@ def _run_agent_stream(session_id: str, user_text: str):
     for _ in range(MAX_TOOL_ROUNDS_STREAM):
         msg = llm.chat_with_tools(messages, tools.TOOL_SPECS)
         if not msg.tool_calls:
-            yield msg.content or ""
+            yield _apply_safety_net(msg.content or "")
             return
         messages.append(_tool_call_message(msg))
         messages.extend(_execute_tool_calls(msg))
 
-    yield from llm.chat_stream(messages)
+    parts = []
+    for delta in llm.chat_stream(messages):
+        parts.append(delta)
+        yield delta
+    text = "".join(parts)
+    safe = _apply_safety_net(text)
+    if safe != text:
+        yield safe[len(text):]
+
+
+@app.get("/")
+def index():
+    """浏览器对话界面。"""
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/health")
