@@ -1,0 +1,36 @@
+[
+  {"question": "适当运动对心情真的有好处吗？", "expected_source": "01_心理健康素养十条.md"},
+  {"question": "心情不好要不要主动去找人帮忙？", "expected_source": "01_心理健康素养十条.md"},
+  {"question": "最近老睡不好，是不是身体哪里出问题了？", "expected_source": "01_心理健康素养十条.md"},
+  {"question": "吃精神类的药能自己调整剂量吗？", "expected_source": "01_心理健康素养十条.md"},
+  {"question": "家里老人记性变差，怎么预防老年痴呆？", "expected_source": "01_心理健康素养十条.md"},
+  {"question": "邻居得了抑郁症，家里人都躲着他，这样对吗？", "expected_source": "01_心理健康素养十条.md"},
+
+  {"question": "我最近什么都不想干，是不是得了抑郁症？", "expected_source": "02_抑郁症基础认知.md"},
+  {"question": "抑郁症一般都有哪些表现？", "expected_source": "02_抑郁症基础认知.md"},
+  {"question": "老年人的抑郁跟年轻人有什么不一样？", "expected_source": "02_抑郁症基础认知.md"},
+  {"question": "人为什么会得抑郁症啊？", "expected_source": "02_抑郁症基础认知.md"},
+  {"question": "抑郁症能治好吗？一般怎么治？", "expected_source": "02_抑郁症基础认知.md"},
+  {"question": "家里老人情绪低落，我能帮着做点什么？", "expected_source": "02_抑郁症基础认知.md"},
+
+  {"question": "总是心里发慌坐不住，这是焦虑吗？", "expected_source": "03_焦虑与睡眠问题.md"},
+  {"question": "有点焦虑是不是就是焦虑症？", "expected_source": "03_焦虑与睡眠问题.md"},
+  {"question": "心里一有事就睡不着，这正常吗？", "expected_source": "03_焦虑与睡眠问题.md"},
+  {"question": "平时有什么办法能让自己不那么焦虑？", "expected_source": "03_焦虑与睡眠问题.md"},
+  {"question": "焦虑到什么程度该去医院看看？", "expected_source": "03_焦虑与睡眠问题.md"},
+  {"question": "家里人总说心里发紧，我该怎么陪他？", "expected_source": "03_焦虑与睡眠问题.md"},
+
+  {"question": "人上了年纪，心理上会有哪些变化？", "expected_source": "04_老年心理健康.md"},
+  {"question": "老年人容易出现心理问题的原因有哪些？", "expected_source": "04_老年心理健康.md"},
+  {"question": "怎么判断家里老人心理状态不太对？", "expected_source": "04_老年心理健康.md"},
+  {"question": "子女能为老人的心理健康做些什么？", "expected_source": "04_老年心理健康.md"},
+  {"question": "老年人自己能做点什么让心情好起来？", "expected_source": "04_老年心理健康.md"},
+  {"question": "社会上有哪些资源能帮到老年人？", "expected_source": "04_老年心理健康.md"},
+
+  {"question": "什么样的表现说明一个人真有危险了？", "expected_source": "05_危机识别与求助.md"},
+  {"question": "身边人流露出不想活了的念头，该怎么回应？", "expected_source": "05_危机识别与求助.md"},
+  {"question": "想不开的时候可以找谁求助？", "expected_source": "05_危机识别与求助.md"},
+  {"question": "照顾情绪不好的人，自己快熬不住了怎么办？", "expected_source": "05_危机识别与求助.md"},
+  {"question": "发现朋友有自伤的情况，首先该做什么？", "expected_source": "05_危机识别与求助.md"},
+  {"question": "心理援助热线是干什么的？打过去有人接吗？", "expected_source": "05_危机识别与求助.md"}
+]
