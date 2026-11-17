@@ -50,6 +50,18 @@ def chat_json(messages: list[dict], temperature: float = 0.0) -> dict:
             continue
     raise ValueError(f"模型没有返回合法 JSON：{content[:200]}")
 
+
+def chat_with_tools(messages: list[dict], tools: list[dict], temperature: float = 0.8):
+    """带工具的非流式调用。返回 message 对象：可能带 tool_calls，也可能就是最终回答。"""
+    resp = _get_client().chat.completions.create(
+        model=_model(),
+        messages=messages,
+        tools=tools,
+        temperature=temperature,
+    )
+    return resp.choices[0].message
+
+
 def chat_stream(messages: list[dict], temperature: float = 0.8):
     """流式：逐段产出回复内容（generator）。
 

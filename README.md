@@ -8,7 +8,7 @@
 - ✅ **阶段 1**：接 LLM（本地 Ollama 或 DeepSeek API，二选一）+ 多轮对话 + 流式输出
 - ✅ **阶段 2**：人格 Prompt 工程化（六模块 + few-shot + 危机干预流程 + 情绪标签）
 - ✅ **阶段 3**：RAG 心理学知识库（切片 + 向量化 + Chroma 检索，检索结果注入对话）
-- ⬜ 阶段 4：Agent 化（工具调用 + 记忆）
+- ✅ **阶段 4**：Agent 化（Function Calling 工具调用 + SQLite 长期记忆）
 - ⬜ 阶段 5：语音 + 数字人前端
 - ⬜ 阶段 6：评测 + 部署 + 简历
 
@@ -22,13 +22,16 @@ emotional-companion-agent/
 │   ├── __init__.py      # 包标记
 │   ├── main.py          # FastAPI 入口 + 接口
 │   ├── config.py        # 读取 .env 配置，切换 LLM provider
-│   ├── llm.py           # LLM 客户端封装（普通 / 流式）
-│   ├── prompts.py       # 数字人人格 Prompt（六模块）
+│   ├── llm.py           # LLM 客户端封装（普通 / 流式 / JSON / 工具调用）
+│   ├── prompts.py       # 数字人人格 Prompt（六模块）+ 记忆抽取 Prompt
 │   ├── rag.py           # 知识库：切片、向量化、检索（Chroma）
+│   ├── memory.py        # 长期记忆：SQLite 存用户画像 + 对话摘要
+│   ├── tools.py         # 工具定义（TOOL_SPECS）与执行（search_knowledge）
 │   └── sessions.py      # 多轮对话的会话管理（内存版）
 ├── data/
 │   ├── knowledge/       # 心理学知识库（Markdown 文档，5 篇）
-│   └── chroma/          # 向量库（本地生成，不入库）
+│   ├── chroma/          # 向量库（本地生成，不入库）
+│   └── memory.db        # 长期记忆数据库（本地生成，不入库）
 ├── test_chat.py         # 自测脚本
 ├── requirements.txt     # 依赖
 ├── .env.example         # 配置模板（复制成 .env 使用）
@@ -199,7 +202,13 @@ curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "
 3. 对话时拿用户这句话去检索 top-3 最相关片段
 4. 拼进 system prompt 的"参考资料"段——要求模型**用自己话表达、不要照抄**
 
-当前是**朴素 RAG**：每一轮都检索，闲聊也会去查库。阶段 4 会升级成"由模型自主决定何时检索"的工具调用。
+当前是**工具化检索**：检索从"每轮必做"变成模型按需调用的工具 `search_knowledge`——模型自己判断这个问题需不需要查知识库，闲聊和共情不再触发检索（见核心机制四）。
+
+## 核心机制四：长期记忆与工具调用
+
+**长期记忆**：用 SQLite（`data/memory.db`）存两类东西——用户画像（JSON：姓名、年龄、健康状况等）和对话摘要。每轮对话结束后，由**后台任务**（`BackgroundTasks`，不拖慢回复）用 LLM 从本轮对话抽取新事实、滚动更新摘要（不超过 80 字）；下一轮对话前把画像和摘要注入 system prompt。服务重启、对话历史清空后，agent 依然"记得"用户。
+
+**工具调用**：知识检索升级为 Function Calling。`tools.py` 定义工具 `search_knowledge` 的 JSON Schema；模型认为需要专业资料时返回 `tool_calls`，服务端执行检索并把结果作为 `tool` 消息喂回，模型据此组织最终回答（最多 3 轮，防止反复调工具死循环）。流式接口采用两段式：工具轮次非流式，最后一段流式输出。
 
 ## 三种典型场景（实测）
 
@@ -213,8 +222,8 @@ curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "
 
 ## 路线图
 
-- **阶段 4**：Agent 化 —— Function Calling 工具（知识检索 / 情绪评估 / 危机干预）+ 长期记忆
 - **阶段 5**：语音与数字人 —— ASR + TTS + 2D 形象口型同步
 - **阶段 6**：评测（评测集、bad case 分析）+ Docker 部署
 
-> 已完成：阶段 3 RAG —— 5 篇心理学知识库、500/80 切片、`bge-m3` 向量化、Chroma 存储、top-3 检索注入对话。
+> 已完成：阶段 3 RAG —— 5 篇心理学知识库、500/80 切片、`bge-m3` 向量化、Chroma 存储、top-3 检索。
+> 已完成：阶段 4 Agent 化 —— `search_knowledge` 工具（模型自主决定检索时机，最多 3 轮）、SQLite 长期记忆（画像 + 滚动摘要，后台抽取、注入 system prompt）。

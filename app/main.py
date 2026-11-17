@@ -10,7 +10,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import llm, memory, rag, sessions
+from . import llm, memory, sessions, tools
 from .prompts import MEMORY_EXTRACT_PROMPT, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -28,12 +28,8 @@ class ClearRequest(BaseModel):
 
 
 def _build_messages(session_id: str, user_text: str) -> list[dict]:
-    """拼出消息列表：system（人格 + 长期记忆 + 参考资料） + 历史 + 本轮用户消息。"""
+    """拼出消息列表：system（人格 + 长期记忆） + 历史 + 本轮用户消息。"""
     history = sessions.get_history(session_id)
-
-    # 朴素 RAG：拿用户这句话去知识库查最相关的 3 段
-    docs = rag.retrieve(user_text, top_k=3)
-    reference = "\n\n".join(f"《{d['source']}》：{d['text']}" for d in docs)
 
     # 长期记忆：空的时候不拼这一段，省 token 也避免空块让模型困惑
     profile, summary = memory.get(session_id)
@@ -46,14 +42,11 @@ def _build_messages(session_id: str, user_text: str) -> list[dict]:
             parts.append("过往对话摘要：" + summary)
         memory_block = "\n\n# 关于用户（长期记忆）\n" + "\n".join(parts)
 
-    system = (
-        SYSTEM_PROMPT
-        + memory_block
-        + "\n\n# 参考资料（用你自己的话表达，不要照抄）\n"
-        + reference
+    return (
+        [{"role": "system", "content": SYSTEM_PROMPT + memory_block}]
+        + history
+        + [{"role": "user", "content": user_text}]
     )
-
-    return [{"role": "system", "content": system}] + history + [{"role": "user", "content": user_text}]
 
 def _update_memory(session_id: str, user_text: str, reply: str) -> None:
     profile, summary = memory.get(session_id)
@@ -81,6 +74,68 @@ def _update_memory(session_id: str, user_text: str, reply: str) -> None:
         memory.save_summary(session_id, new_summary)
 
 
+MAX_TOOL_STEPS = 3
+MAX_TOOL_ROUNDS_STREAM = 2
+
+
+def _tool_call_message(msg) -> dict:
+    """把模型返回的 tool_calls 原样转成可回填的 assistant 消息。"""
+    return {
+        "role": "assistant",
+        "content": msg.content or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+            }
+            for tc in msg.tool_calls
+        ],
+    }
+
+
+def _execute_tool_calls(msg) -> list[dict]:
+    """逐个执行工具调用，返回对应的 tool 消息列表。"""
+    results = []
+    for tc in msg.tool_calls:
+        try:
+            result = tools.run_tool(tc.function.name, tc.function.arguments)
+        except Exception as exc:
+            result = f"工具执行失败：{exc}"
+        results.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+    return results
+
+
+def _run_agent(session_id: str, user_text: str) -> str:
+    """agent 主循环：模型要工具就执行、喂回结果，直到它给出最终回答。"""
+    messages = _build_messages(session_id, user_text)
+
+    msg = None
+    for _ in range(MAX_TOOL_STEPS):
+        msg = llm.chat_with_tools(messages, tools.TOOL_SPECS)
+        if not msg.tool_calls:
+            return msg.content or ""
+        messages.append(_tool_call_message(msg))
+        messages.extend(_execute_tool_calls(msg))
+
+    return msg.content if (msg and msg.content) else "我有点没跟上，您能再说一遍吗？"
+
+
+def _run_agent_stream(session_id: str, user_text: str):
+    """流式版：前段非流式跑工具轮，最后一段流式收尾。"""
+    messages = _build_messages(session_id, user_text)
+
+    for _ in range(MAX_TOOL_ROUNDS_STREAM):
+        msg = llm.chat_with_tools(messages, tools.TOOL_SPECS)
+        if not msg.tool_calls:
+            yield msg.content or ""
+            return
+        messages.append(_tool_call_message(msg))
+        messages.extend(_execute_tool_calls(msg))
+
+    yield from llm.chat_stream(messages)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -89,9 +144,8 @@ def health():
 @app.post("/chat")
 def chat(req: ChatRequest, background: BackgroundTasks):
     """非流式对话：一次性返回完整回复，记忆抽取在响应发出后后台执行。"""
-    messages = _build_messages(req.session_id, req.message)
     try:
-        reply = llm.chat(messages)
+        reply = _run_agent(req.session_id, req.message)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM 调用失败：{exc}") from exc
 
@@ -104,12 +158,10 @@ def chat(req: ChatRequest, background: BackgroundTasks):
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest, background: BackgroundTasks):
     """流式对话：以 SSE 形式逐字返回，前端可实时显示。"""
-    messages = _build_messages(req.session_id, req.message)
-
     def generate():
         full = ""
         try:
-            for delta in llm.chat_stream(messages):
+            for delta in _run_agent_stream(req.session_id, req.message):
                 full += delta
                 yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
         except Exception as exc:
